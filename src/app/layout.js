@@ -24,6 +24,10 @@ export const metadata = {
   description:
     "Professional Assignment Writing Services in Pakistan. BSCS, BBA, MBA, IT, Engineering and University Assignments with quality work, affordable prices and on-time delivery.",
 
+  verification: {
+    google: "wBozSb2Y-wWXsaGI_Nu7ylw0kE8beuZzDnViaNjJ0H0",
+  },
+
   keywords: [
     "Assignment Writing",
     "Assignment Services",
