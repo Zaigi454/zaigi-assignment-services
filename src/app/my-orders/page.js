@@ -5,8 +5,11 @@ import { useRouter } from "next/navigation";
 import { onAuthStateChanged } from "firebase/auth";
 import {
   collection,
+  doc,
   onSnapshot,
   query,
+  serverTimestamp,
+  updateDoc,
   where,
 } from "firebase/firestore";
 
@@ -55,6 +58,12 @@ export default function MyOrdersPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
 
+  const [feedbackOrder, setFeedbackOrder] = useState(null);
+  const [rating, setRating] = useState(0);
+  const [feedbackText, setFeedbackText] = useState("");
+  const [submittingFeedback, setSubmittingFeedback] = useState(false);
+  const [feedbackError, setFeedbackError] = useState("");
+
   useEffect(() => {
     let unsubscribeOrders = null;
 
@@ -80,6 +89,7 @@ export default function MyOrdersPage() {
           orderData.sort((firstOrder, secondOrder) => {
             const firstTime =
               firstOrder.createdAt?.toMillis?.() || 0;
+
             const secondTime =
               secondOrder.createdAt?.toMillis?.() || 0;
 
@@ -105,6 +115,84 @@ export default function MyOrdersPage() {
       }
     };
   }, [router]);
+
+  function openFeedbackModal(order) {
+    setFeedbackOrder(order);
+    setRating(0);
+    setFeedbackText("");
+    setFeedbackError("");
+  }
+
+  function closeFeedbackModal() {
+    if (submittingFeedback) {
+      return;
+    }
+
+    setFeedbackOrder(null);
+    setRating(0);
+    setFeedbackText("");
+    setFeedbackError("");
+  }
+
+  async function submitFeedback(event) {
+    event.preventDefault();
+
+    if (!feedbackOrder) {
+      return;
+    }
+
+    if (feedbackOrder.status !== "completed") {
+      setFeedbackError(
+        "Feedback can only be submitted for a completed order."
+      );
+      return;
+    }
+
+    if (feedbackOrder.feedback) {
+      setFeedbackError(
+        "Feedback has already been submitted for this order."
+      );
+      return;
+    }
+
+    if (rating < 1 || rating > 5) {
+      setFeedbackError("Please select a rating from 1 to 5 stars.");
+      return;
+    }
+
+    if (feedbackText.trim().length < 3) {
+      setFeedbackError("Please write a short feedback message.");
+      return;
+    }
+
+    try {
+      setSubmittingFeedback(true);
+      setFeedbackError("");
+
+      await updateDoc(doc(db, "orders", feedbackOrder.id), {
+        rating,
+        feedback: feedbackText.trim(),
+        feedbackSubmittedAt: serverTimestamp(),
+        updatedAt: serverTimestamp(),
+      });
+
+      closeFeedbackModal();
+    } catch (firebaseError) {
+      console.error("Feedback submission error:", firebaseError);
+
+      if (firebaseError.code === "permission-denied") {
+        setFeedbackError(
+          "Database permission denied. Firestore rules need updating."
+        );
+      } else {
+        setFeedbackError(
+          "Feedback could not be submitted. Please try again."
+        );
+      }
+    } finally {
+      setSubmittingFeedback(false);
+    }
+  }
 
   if (loading) {
     return (
@@ -175,7 +263,7 @@ export default function MyOrdersPage() {
                 order.paymentStatus || "not-paid";
 
               const canPay =
-                order.quotedPrice &&
+                Boolean(order.quotedPrice) &&
                 paymentStatus === "not-paid" &&
                 order.status !== "rejected";
 
@@ -259,7 +347,28 @@ export default function MyOrdersPage() {
                     </div>
                   )}
 
-                  <div className="mt-6 flex flex-col gap-4 sm:flex-row">
+                  {order.feedback && (
+                    <div className="mt-6 rounded-2xl border border-yellow-500/20 bg-yellow-500/10 p-5">
+                      <p className="text-sm font-semibold text-yellow-300">
+                        Your Feedback
+                      </p>
+
+                      <p className="mt-2 text-2xl">
+                        {"★".repeat(Number(order.rating || 0))}
+                        <span className="text-slate-600">
+                          {"★".repeat(
+                            Math.max(0, 5 - Number(order.rating || 0))
+                          )}
+                        </span>
+                      </p>
+
+                      <p className="mt-3 leading-7 text-slate-200">
+                        {order.feedback}
+                      </p>
+                    </div>
+                  )}
+
+                  <div className="mt-6 flex flex-wrap gap-4">
                     {canPay && (
                       <button
                         type="button"
@@ -301,33 +410,145 @@ export default function MyOrdersPage() {
                     )}
 
                     {order.completedFileUrl && (
-  <div className="mt-6 flex flex-wrap gap-3">
+                      <a
+                        href={order.completedFileUrl}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="inline-flex rounded-xl bg-gradient-to-r from-green-500 to-emerald-600 px-6 py-3 font-bold text-white transition hover:scale-105"
+                      >
+                        📥 Download Assignment
+                      </a>
+                    )}
 
-    <a
-      href={order.completedFileUrl}
-      target="_blank"
-      rel="noopener noreferrer"
-      className="inline-flex rounded-xl bg-gradient-to-r from-green-500 to-emerald-600 px-6 py-3 font-bold text-white transition hover:scale-105"
-    >
-      📥 Download Assignment
-    </a>
+                    {order.status === "completed" &&
+                      !order.feedback && (
+                        <button
+                          type="button"
+                          onClick={() => openFeedbackModal(order)}
+                          className="rounded-xl bg-gradient-to-r from-yellow-500 to-orange-500 px-6 py-3 font-bold text-white shadow-lg transition hover:scale-105"
+                        >
+                          ⭐ Leave Feedback
+                        </button>
+                      )}
 
-    {order.status !== "completed" && (
-      <span className="rounded-xl bg-yellow-500/10 px-4 py-3 text-sm text-yellow-300">
-        File uploaded. Status is not Completed yet.
-      </span>
-    )}
-
-  </div>
-)}
+                    {order.status === "completed" &&
+                      order.feedback && (
+                        <div className="rounded-xl border border-yellow-500/30 bg-yellow-500/10 px-5 py-3 font-semibold text-yellow-300">
+                          ✓ Feedback Submitted
+                        </div>
+                      )}
                   </div>
                 </article>
               );
             })}
           </div>
         )}
-
       </div>
+
+      {feedbackOrder && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/75 p-4 backdrop-blur-sm">
+          <div className="w-full max-w-lg rounded-3xl border border-white/10 bg-slate-900 p-6 shadow-2xl sm:p-8">
+
+            <div className="flex items-start justify-between gap-5">
+              <div>
+                <p className="text-sm font-semibold tracking-widest text-yellow-400">
+                  CUSTOMER FEEDBACK
+                </p>
+
+                <h2 className="mt-2 text-2xl font-black">
+                  Rate Your Experience
+                </h2>
+
+                <p className="mt-2 text-sm text-slate-400">
+                  Order: {feedbackOrder.title}
+                </p>
+              </div>
+
+              <button
+                type="button"
+                onClick={closeFeedbackModal}
+                disabled={submittingFeedback}
+                className="rounded-xl border border-white/10 bg-white/5 px-4 py-2 text-slate-300 hover:bg-white/10 disabled:opacity-50"
+              >
+                Close
+              </button>
+            </div>
+
+            <form
+              onSubmit={submitFeedback}
+              className="mt-7 space-y-6"
+            >
+              <div>
+                <p className="mb-3 font-semibold text-slate-300">
+                  Select Rating
+                </p>
+
+                <div className="flex gap-2">
+                  {[1, 2, 3, 4, 5].map((star) => (
+                    <button
+                      key={star}
+                      type="button"
+                      onClick={() => setRating(star)}
+                      className={`text-4xl transition hover:scale-110 ${
+                        star <= rating
+                          ? "text-yellow-400"
+                          : "text-slate-600"
+                      }`}
+                      aria-label={`${star} star rating`}
+                    >
+                      ★
+                    </button>
+                  ))}
+                </div>
+
+                {rating > 0 && (
+                  <p className="mt-2 text-sm text-yellow-300">
+                    {rating} out of 5 stars selected
+                  </p>
+                )}
+              </div>
+
+              <div>
+                <label
+                  htmlFor="feedbackText"
+                  className="mb-2 block font-semibold text-slate-300"
+                >
+                  Your Feedback
+                </label>
+
+                <textarea
+                  id="feedbackText"
+                  rows="5"
+                  value={feedbackText}
+                  onChange={(event) =>
+                    setFeedbackText(event.target.value)
+                  }
+                  placeholder="Tell us about your experience..."
+                  required
+                  className="w-full resize-none rounded-xl border border-white/10 bg-slate-950 px-4 py-4 text-white outline-none placeholder:text-slate-500 focus:border-yellow-500"
+                />
+              </div>
+
+              {feedbackError && (
+                <div className="rounded-xl border border-red-500/30 bg-red-500/10 p-4 text-red-300">
+                  {feedbackError}
+                </div>
+              )}
+
+              <button
+                type="submit"
+                disabled={submittingFeedback}
+                className="w-full rounded-xl bg-gradient-to-r from-yellow-500 to-orange-500 py-4 font-bold text-white shadow-lg transition hover:scale-[1.01] disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                {submittingFeedback
+                  ? "Submitting Feedback..."
+                  : "Submit Feedback"}
+              </button>
+            </form>
+
+          </div>
+        </div>
+      )}
     </main>
   );
 }
