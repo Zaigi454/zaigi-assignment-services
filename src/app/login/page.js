@@ -152,12 +152,12 @@ export default function LoginPage() {
               Remember me
             </label>
 
-            <button
-              type="button"
-              className="text-sm font-semibold text-blue-400 hover:text-blue-300"
-            >
-              Forgot Password?
-            </button>
+            <Link
+  href="/forgot-password"
+  className="text-sm font-semibold text-blue-400 hover:text-blue-300"
+>
+  Forgot Password?
+</Link>
           </div>
 
           {error && (
